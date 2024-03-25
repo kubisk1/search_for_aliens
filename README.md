@@ -1,4 +1,7 @@
+Use case diagram
+
 @startuml
+
 left to right direction
 actor Operator as "Operator Centrum Kontroli"
 actor System as "System Stacji Odbiorczej"
