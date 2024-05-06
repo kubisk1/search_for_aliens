@@ -9,7 +9,6 @@ class ProbeSimulator:
     async def start_communication(self):
         while True:
             await asyncio.sleep(random.randint(10, 30))  # Symulacja okna komunikacyjnego
-            print ("Start communication ")
             data = self.generate_data()
             await self.send_data(data)
 
