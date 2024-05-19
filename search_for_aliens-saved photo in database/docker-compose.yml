@@ -1,0 +1,15 @@
+version: "3.9"
+
+services:
+  db:
+    container_name: "db_postgres"
+    image: postgres:15
+    volumes:
+      - db_data:/var/lib/postgresql/data
+    environment:
+      - POSTGRES_PASSWORD=postgres
+      - POSTGRES_DB=zdjecia
+    ports:
+      - 5433:5432
+volumes:
+  db_data:
