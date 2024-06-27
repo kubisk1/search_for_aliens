@@ -20,10 +20,10 @@ class CommunicationStation:
         self.server_diode_canvas = None  # Przechowywanie obiektu Canvas dla diody serwera
         self.message_index = 0  # Indeks do śledzenia, w której kolumnie dodawane są wiadomości
         self.setup_gui()  # Ustawienie GUI
-        
+
     def setup_gui(self):
         self.root.title("Communication Station")
-        
+
         # Główne ramki
         control_frame = ttk.Frame(self.root)
         control_frame.pack(side=tk.TOP, fill=tk.X, padx=10, pady=5)
@@ -55,9 +55,20 @@ class CommunicationStation:
             frame = ttk.LabelFrame(probe_button_frame, text=f"{probe_id}")
             frame.grid(row=0, column=i, padx=5, pady=5)
 
-            ttk.Button(frame, text="Connect", command=lambda probe_id=probe_id: asyncio.create_task(self.connect_probe(probe_id))).pack(pady=2)
-            ttk.Button(frame, text="Disconnect", command=lambda probe_id=probe_id: asyncio.create_task(self.disconnect_probe(probe_id))).pack(pady=2)
-            ttk.Button(frame, text="Plot", command=lambda probe_id=probe_id: asyncio.create_task(self.fetch_and_plot_temperatures(probe_id))).pack(pady=2)
+            connection_frame = ttk.LabelFrame(frame, text="Connection")
+            connection_frame.pack(fill=tk.X, pady=2)
+
+            ttk.Button(connection_frame, text="Connect", command=lambda probe_id=probe_id: asyncio.create_task(self.connect_probe(probe_id))).pack(pady=2)
+            ttk.Button(connection_frame, text="Disconnect", command=lambda probe_id=probe_id: asyncio.create_task(self.disconnect_probe(probe_id))).pack(pady=2)
+
+            plot_frame = ttk.LabelFrame(frame, text="Plots")
+            plot_frame.pack(fill=tk.X, pady=2)
+
+            ttk.Button(plot_frame, text="Temperature", command=lambda probe_id=probe_id: asyncio.create_task(self.fetch_and_plot_readings(probe_id, 'temperature'))).pack(pady=2)
+            ttk.Button(plot_frame, text="Humidity", command=lambda probe_id=probe_id: asyncio.create_task(self.fetch_and_plot_readings(probe_id, 'humidity'))).pack(pady=2)
+            ttk.Button(plot_frame, text="Visibility", command=lambda probe_id=probe_id: asyncio.create_task(self.fetch_and_plot_readings(probe_id, 'visibility'))).pack(pady=2)
+            ttk.Button(plot_frame, text="Passengers Count", command=lambda probe_id=probe_id: asyncio.create_task(self.fetch_and_plot_readings(probe_id, 'passengers_count'))).pack(pady=2)
+            ttk.Button(plot_frame, text="Pressure", command=lambda probe_id=probe_id: asyncio.create_task(self.fetch_and_plot_readings(probe_id, 'pressure'))).pack(pady=2)
 
             # Dioda sygnalizacyjna sondy
             diode_canvas = Canvas(frame, width=20, height=20, bg='red')
@@ -98,12 +109,16 @@ class CommunicationStation:
 
     async def start_server(self):
         print(f"Starting server on {self.host}:{self.port}")
-        self.server = await asyncio.start_server(lambda r, w: ConnectionHandler(r, w, self.data_processor, self.data_storage, self).process_connection(), self.host, self.port)
-        self.update_server_diode(True) 
-        async with self.server:
-            print(f"Serving on {self.server.sockets[0].getsockname()}")
-            self.insert_message("Server has been started.\n")
-            await self.server.serve_forever()  
+        try:
+            self.server = await asyncio.start_server(lambda r, w: ConnectionHandler(r, w, self.data_processor, self.data_storage, self).process_connection(), self.host, self.port)
+            self.update_server_diode(True) 
+            async with self.server:
+                print(f"Serving on {self.server.sockets[0].getsockname()}")
+                self.insert_message("Server has been started.\n")
+                await self.data_storage.save_command(1, None, "start_server")
+                await self.server.serve_forever()  
+        except Exception as e:
+            await self.data_storage.save_error(None, str(e))
 
     async def stop_server(self):
         if self.server:
@@ -113,26 +128,33 @@ class CommunicationStation:
             self.update_server_diode(False)  
             print("Server has been stopped.")
             self.insert_message("Server has been stopped.\n")
+            await self.data_storage.save_command(1, None, "stop_server")
 
-    async def fetch_and_plot_temperatures(self, probe_id):
+    async def fetch_and_plot_readings(self, probe_id, data_type):
         try:
-            temperatures = await self.data_storage.get_probe_temperatures(probe_id)  # Pobranie danych z bazy
-            if temperatures:
-                temperatures = sorted(temperatures, key=lambda x: x['data_wys'], reverse=True)[:5]
-                timestamps = [record['data_wys'] for record in temperatures]
-                temp_values = [record['temperature'] for record in temperatures]
-                plt.figure(figsize=(10, 5))
-                plt.plot(timestamps, temp_values, marker='o', color='red')
-                plt.title(f"Temperature Data for {probe_id}")
-                plt.xlabel("Timestamp")
-                plt.ylabel("Temperature (°C)")
-                plt.grid(True)
-                plt.show() 
+            sensor_id = await self.data_storage.get_sensor_id(probe_id)
+            if sensor_id:
+                readings = await self.data_storage.get_probe_readings(sensor_id)  # Pobranie danych z bazy
+                if readings:
+                    readings = sorted(readings, key=lambda x: x['timestamp'], reverse=True)[:5]
+                    timestamps = [record['timestamp'] for record in readings]
+                    data_values = [record[data_type] for record in readings]
+                    plt.figure(figsize=(10, 5))
+                    plt.plot(timestamps, data_values, marker='o', color='red')
+                    plt.title(f"{data_type.capitalize()} Data for {probe_id}")
+                    plt.xlabel("Timestamp")
+                    plt.ylabel(f"{data_type.capitalize()} Value")
+                    plt.grid(True)
+                    plt.show() 
+                    await self.data_storage.save_command(1, probe_id, f"plot_{data_type}")
+                else:
+                    self.insert_message(f"No readings data found for {probe_id}.\n")
             else:
-                self.insert_message(f"No temperature data found for {probe_id}.\n")
+                self.insert_message(f"Sensor ID for probe {probe_id} not found.\n")
         except Exception as e:
             print(f"Error fetching data for {probe_id}: {e}")
             self.insert_message(f"Error fetching data for {probe_id}: {e}\n")
+            await self.data_storage.save_error(probe_id, str(e))
 
     async def connect_probe(self, probe_id):
         if not self.probes[probe_id]['connected']:
@@ -142,7 +164,8 @@ class CommunicationStation:
             self.probes[probe_id]['probe_instance'] = probe
             self.probes[probe_id]['task'] = task
             probe.start()  # Uruchomienie komunikacji
-            self.update_diode(probe_id, True)  
+            self.update_diode(probe_id, True)
+            await self.data_storage.save_command(1, probe_id, "connect")
             self.insert_message(f"{probe_id} connected.\n")
             print(f"{probe_id} connected.")
         else:
@@ -159,7 +182,8 @@ class CommunicationStation:
             self.probes[probe_id]['connected'] = False
             self.probes[probe_id]['probe_instance'] = None
             self.probes[probe_id]['task'] = None
-            self.update_diode(probe_id, False) 
+            self.update_diode(probe_id, False)
+            await self.data_storage.save_command(1, probe_id, "disconnect")
             self.insert_message(f"{probe_id} disconnected.\n")
             print(f"{probe_id} disconnected.")
         else:
@@ -167,15 +191,18 @@ class CommunicationStation:
             print(f"{probe_id} is not connected.")
 
     async def connect_all_probes(self):
-        for probe_id in self.probes.keys():
-            await self.connect_probe(probe_id)  # Połączenie wszystkich sond
+        tasks = [self.connect_probe(probe_id) for probe_id in self.probes.keys()]
+        await asyncio.gather(*tasks)  # Połączenie wszystkich sond jednocześnie
+        await self.data_storage.save_command(1, None, "connect_all_probes")  # Dodaj tę linię
+
 
     async def disconnect_all_probes(self):
-        for probe_id in self.probes.keys():
-            await self.disconnect_probe(probe_id)  # Rozłączenie wszystkich sond
+        tasks = [self.disconnect_probe(probe_id) for probe_id in self.probes.keys()]
+        await asyncio.gather(*tasks)  # Rozłączenie wszystkich sond jednocześnie
+        await self.data_storage.save_command(1, None, "disconnect_all_probes")  # Dodaj tę linię
 
-    def update_temperature(self, probe_id, temperature):
-        self.temperature_labels[probe_id].config(text=f"Last Temp: {temperature:.2f}°C")  # Aktualizacja etykiety temperatury
+    def update_data(self, probe_id, data):
+        self.temperature_labels[probe_id].config(text=f"Last Temp: {data['temperature']:.2f}°C")  # Aktualizacja etykiety temperatury
 
     def insert_message(self, message):
         if self.message_index >= len(self.messages_text):
@@ -192,7 +219,4 @@ if __name__ == "__main__":
     data_processor = None  
     data_storage = None  
     station = CommunicationStation('localhost', 8000, data_processor, data_storage, root)
-    root.mainloop()  
-
-           
-
+    root.mainloop()

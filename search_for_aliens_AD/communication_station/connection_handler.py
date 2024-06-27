@@ -11,11 +11,11 @@ class ConnectionHandler:
         try:
             data = await self.reader.read(10000)  # Odczytanie danych
             print(f"Received data from {addr}")
-            probe_id, temperature = self.data_processor.extract_metadata(data)
+            metadata = self.data_processor.extract_metadata(data)
             
             if self.data_processor.verify_data(data):
-                await self.data_storage.save_temperature(probe_id, temperature)  # Zapisanie danych do bazy
-                self.station.update_temperature(probe_id, temperature)
+                await self.data_storage.save_reading(metadata)  # Zapisanie danych do bazy
+                self.station.update_data(metadata['probe_id'], metadata)
                 self.writer.write(b"ACK")  # Wysłanie potwierdzenia przesłania danych
                 await self.writer.drain()
             else:
@@ -23,9 +23,9 @@ class ConnectionHandler:
                 await self.writer.drain()
         except Exception as e:
             print(f"Error processing connection from {addr}: {e}")
+            await self.data_storage.save_error(None, str(e))
             self.writer.write(b"NACK")
             await self.writer.drain()
         finally:
             self.writer.close()  # Zamknięcie połączenia
             await self.writer.wait_closed()
-

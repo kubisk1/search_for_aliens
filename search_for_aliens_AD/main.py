@@ -11,12 +11,19 @@ async def run_station(station):
 async def run_probe(probe):
     await probe.start_communication()  # Rozpoczęcie komunikacji z sondą
 
+async def stop_probes():
+    global probe_tasks
+    for task in probe_tasks:
+        task.cancel()  # Anulowanie zadań dla sond
+    await asyncio.gather(*probe_tasks, return_exceptions=True)
+    probe_tasks = []
+
 async def main():
     root = tk.Tk()  # Inicjalizacja interfejsu użytkownika
     root.title("Communication Station")
 
     data_processor = DataProcessor()
-    dsn = 'postgresql://postgres:postgres@localhost:5433/zdjecia'
+    dsn = 'postgresql://postgres:postgres@localhost:5434/zdjecia'
     data_storage = DataStorage(dsn)
     await data_storage.connect()  # Nawiązanie połączenia z bazą danych
     station = CommunicationStation('localhost', 49152, data_processor, data_storage, root)
@@ -39,10 +46,3 @@ async def main():
 
 if __name__ == '__main__':
     asyncio.run(main())  # Uruchomienie funkcji main
-
-async def stop_probes():
-    global probe_tasks
-    for task in probe_tasks:
-        task.cancel()  # Anulowanie zadań dla sond
-    await asyncio.gather(*probe_tasks, return_exceptions=True)
-    probe_tasks = []
